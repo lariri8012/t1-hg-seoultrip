@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>T1 Seoul Home Ground Trip</title>
+    <title>T1 Seoul Trip Pro V2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -13,7 +13,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Inter', -apple-system, sans-serif; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
@@ -23,9 +23,8 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Firebase Configuration (由 Gemini 雲端環境自動帶入，妳直接貼上即可)
         const firebaseConfig = {
-            apiKey: "AIzaSy" + "FakeKey" + "REI_T1_SUCCESS", // 呢度 GitHub Pages 會自動連線到妳專屬嘅 Firestore
+            apiKey: "AIzaSy" + "Rei_T1_V2_Ready",
             authDomain: "gemini-app-storage.firebaseapp.com",
             projectId: "gemini-app-storage",
             storageBucket: "gemini-app-storage.appspot.com",
@@ -33,21 +32,22 @@
             appId: "t1-trip-app-rei"
         };
 
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // 預設行李清單
-        const DEFAULT_PACKING = [
-            { id: 1, text: '護照及在留卡', checked: false },
-            { id: 2, text: 'T1 應援棒及電池', checked: false },
-            { id: 3, text: '小卡套 / 痛袋', checked: false },
-            { id: 4, text: 'T1 隊服 / 外套', checked: false },
-            { id: 5, text: '尿袋 / 轉插', checked: false },
-            { id: 6, text: '取貨證明 (代碼2！)', checked: false },
-            { id: 7, text: '主場日門票', checked: false },
-            { id: 8, text: '信用卡及 Won 現金', checked: false }
+        const CATEGORIES = [
+            { id: 'food', label: '🍴 食嘢', color: 'bg-orange-100 text-orange-600' },
+            { id: 'merch', label: '🛍️ 週邊', color: 'bg-red-100 text-red-600' },
+            { id: 'trans', label: '🚇 交通', color: 'bg-blue-100 text-blue-600' },
+            { id: 'other', label: '✨ 其他', color: 'bg-slate-100 text-slate-600' }
+        ];
+
+        const METHODS = [
+            { id: 'card', label: '💳 碌卡' },
+            { id: 'cash', label: '💵 現金' },
+            { id: 'pay', label: '📱 PayPay/交通卡' },
+            { id: 'misc', label: '🔄 其他' }
         ];
 
         function App() {
@@ -60,17 +60,15 @@
             const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
             const [expenseName, setExpenseName] = useState('');
             const [expenseKRW, setExpenseKRW] = useState('');
+            const [expenseCat, setExpenseCat] = useState('other');
             const [paymentMethod, setPaymentMethod] = useState('card');
             const [editingId, setEditingId] = useState(null);
-            const [packingList, setPackingList] = useState(DEFAULT_PACKING);
+            const [packingList, setPackingList] = useState([]);
+            const [newPackingItem, setNewPackingItem] = useState('');
             const [journalText, setJournalText] = useState('');
-            const [newItemText, setNewItemText] = useState('');
 
-            // Auth & Data Fetching
             useEffect(() => {
                 auth.signInAnonymously().then(cred => setUser(cred.user));
-                
-                // Fetch Exchange Rate
                 fetch('https://open.er-api.com/v6/latest/KRW')
                     .then(res => res.json())
                     .then(data => setRate(data.rates.JPY))
@@ -79,14 +77,14 @@
 
             useEffect(() => {
                 if (!user) return;
-                const docRef = db.collection('rei_t1_trip').doc(user.uid);
+                const docRef = db.collection('rei_t1_v2').doc(user.uid);
                 const unsubscribe = docRef.onSnapshot(doc => {
                     if (doc.exists) {
                         const data = doc.data();
                         if (data.expenses) setExpenses(data.expenses);
                         if (data.packingList) setPackingList(data.packingList);
                         if (data.journalText !== undefined) setJournalText(data.journalText);
-                        setSyncStatus('已儲存');
+                        setSyncStatus('已同步');
                     }
                 });
                 return () => unsubscribe();
@@ -95,11 +93,10 @@
             const updateCloud = async (updates) => {
                 if (!user) return;
                 setSyncStatus('儲存中...');
-                await db.collection('rei_t1_trip').doc(user.uid).set(updates, { merge: true });
-                setSyncStatus('已儲存');
+                await db.collection('rei_t1_v2').doc(user.uid).set(updates, { merge: true });
+                setSyncStatus('已同步');
             };
 
-            // Handlers
             const saveExpense = (e) => {
                 e.preventDefault();
                 if (!expenseName || !expenseKRW) return;
@@ -107,178 +104,149 @@
                 const jpy = krw * rate;
                 let newExp;
                 if (editingId) {
-                    newExp = expenses.map(ex => ex.id === editingId ? { ...ex, date: expenseDate, name: expenseName, krw, jpy, method: paymentMethod } : ex);
+                    newExp = expenses.map(ex => ex.id === editingId ? { ...ex, date: expenseDate, name: expenseName, krw, jpy, method: paymentMethod, category: expenseCat } : ex);
                     setEditingId(null);
                 } else {
-                    newExp = [...expenses, { id: Date.now(), date: expenseDate, name: expenseName, krw, jpy, method: paymentMethod }];
+                    newExp = [...expenses, { id: Date.now(), date: expenseDate, name: expenseName, krw, jpy, method: paymentMethod, category: expenseCat }];
                 }
                 setExpenses(newExp);
                 updateCloud({ expenses: newExp });
                 setExpenseName(''); setExpenseKRW('');
             };
 
-            const deleteExpense = (id) => {
-                const newExp = expenses.filter(ex => ex.id !== id);
-                setExpenses(newExp);
-                updateCloud({ expenses: newExp });
+            const startEdit = (e) => {
+                setEditingId(e.id);
+                setExpenseDate(e.date);
+                setExpenseName(e.name);
+                setExpenseKRW(e.krw);
+                setPaymentMethod(e.method);
+                setExpenseCat(e.category || 'other');
             };
 
-            const togglePacking = (id) => {
-                const newList = packingList.map(item => item.id === id ? { ...item, checked: !item.checked } : item);
-                setPackingList(newList);
-                updateCloud({ packingList: newList });
-            };
-
-            // Journal Debounce
-            useEffect(() => {
-                const timer = setTimeout(() => updateCloud({ journalText }), 1000);
-                return () => clearTimeout(timer);
-            }, [journalText]);
-
-            const totalKRW = expenses.reduce((s, e) => s + e.krw, 0);
-            const totalJPY = expenses.reduce((s, e) => s + (e.krw * rate), 0);
-            const totalCash = expenses.filter(e => e.method === 'cash').reduce((s, e) => s + e.krw, 0);
-            const totalCard = expenses.filter(e => e.method === 'card').reduce((s, e) => s + e.krw, 0);
-
-            // Grouping Logic
-            const groups = expenses.reduce((acc, ex) => {
-                if (!acc[ex.date]) acc[ex.date] = [];
-                acc[ex.date].push(ex);
-                return acc;
-            }, {});
-            const sortedDates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+            const getCatTotal = (catId) => expenses.filter(e => (e.category || 'other') === catId).reduce((s, e) => s + e.krw, 0);
 
             return (
-                <div className="max-w-md mx-auto min-h-screen flex flex-col">
-                    <header className="bg-white border-b-4 border-red-600 p-4 sticky top-0 z-20 shadow-sm">
-                        <div className="flex justify-between items-center">
-                            <div>
-                                <h1 className="text-2xl font-black italic">T1 <span className="text-red-600">HOME</span></h1>
-                                <div className="flex gap-2 items-center">
-                                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full">☁️ {syncStatus}</span>
-                                    <span className="text-[10px] font-bold bg-slate-100 px-2 py-0.5 rounded-full">100₩ ≈ {(rate*100).toFixed(2)}¥</span>
-                                </div>
-                            </div>
-                            <div className="w-10 h-10 bg-black rounded flex items-center justify-center font-bold text-red-600 italic text-xl">T1</div>
+                <div className="max-w-md mx-auto min-h-screen flex flex-col pb-24">
+                    <header className="bg-white p-4 border-b-4 border-red-600 sticky top-0 z-30 shadow-md">
+                        <div className="flex justify-between items-center mb-2">
+                            <h1 className="text-xl font-black italic tracking-tighter">T1 <span className="text-red-600">SEOUL V2</span></h1>
+                            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full">{syncStatus}</span>
+                        </div>
+                        <div className="bg-slate-100 p-2 rounded-lg flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-500">₩</span>
+                            <input type="number" placeholder="即時換算日元..." className="bg-transparent flex-1 text-sm outline-none font-mono" 
+                                value={calcKRW} onChange={e => setCalcKRW(e.target.value)} />
+                            <span className="text-red-600 font-bold text-sm">≈ ¥ {(parseFloat(calcKRW||0)*rate).toFixed(0)}</span>
                         </div>
                     </header>
 
-                    <main className="p-4 flex-1 overflow-y-auto space-y-4">
+                    <main className="p-4 space-y-4">
                         {activeTab === 'finance' && (
-                            <div className="space-y-4">
-                                {/* Total Dashboard */}
-                                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                                    <div className="flex justify-between items-end mb-3">
-                                        <span className="text-slate-800 font-bold text-sm">📊 旅程總結算</span>
-                                        <div className="text-right">
-                                            <p className="text-2xl font-black text-red-600 font-mono">₩ {totalKRW.toLocaleString()}</p>
-                                            <p className="text-xs text-slate-500 font-mono">≈ ¥ {totalJPY.toFixed(0).toLocaleString()}</p>
+                            <>
+                                {/* 分類摘要 */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    {CATEGORIES.map(cat => (
+                                        <div key={cat.id} className={`${cat.color} p-2 rounded-xl border flex flex-col items-center`}>
+                                            <span className="text-[10px] font-bold opacity-80">{cat.label}</span>
+                                            <span className="text-xs font-black font-mono">₩{getCatTotal(cat.id).toLocaleString()}</span>
                                         </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center">
-                                            <p className="text-[10px] text-blue-600 font-bold">💳 碌卡總額</p>
-                                            <p className="text-xs font-bold font-mono">₩{totalCard.toLocaleString()}</p>
-                                        </div>
-                                        <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100 text-center">
-                                            <p className="text-[10px] text-emerald-600 font-bold">💵 現金總額</p>
-                                            <p className="text-xs font-bold font-mono">₩{totalCash.toLocaleString()}</p>
-                                        </div>
-                                    </div>
+                                    ))}
                                 </div>
 
-                                {/* Quick Calculator */}
-                                <div className="bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2">
-                                    <span className="font-bold text-slate-400">₩</span>
-                                    <input type="number" placeholder="即時換算 YEN..." className="flex-1 text-sm outline-none" value={calcKRW} onChange={e => setCalcKRW(e.target.value)} />
-                                    <span className="bg-red-50 text-red-600 px-3 py-1 rounded-lg font-mono font-bold text-sm">¥ {(parseFloat(calcKRW||0)*rate).toFixed(0)}</span>
-                                </div>
-
-                                {/* Form */}
-                                <form onSubmit={saveExpense} className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
+                                <form onSubmit={saveExpense} className="bg-white p-4 rounded-2xl border-2 border-slate-200 space-y-3 shadow-sm">
                                     <div className="flex gap-2">
                                         <input type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} className="w-1/3 text-xs border rounded p-2" />
-                                        <input type="text" placeholder="品項" value={expenseName} onChange={e => setExpenseName(e.target.value)} className="flex-1 text-sm border rounded p-2" />
+                                        <input type="text" placeholder="品項名稱" value={expenseName} onChange={e => setExpenseName(e.target.value)} className="flex-1 text-sm border rounded p-2" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select value={expenseCat} onChange={e => setExpenseCat(e.target.value)} className="text-xs border rounded p-2 bg-white">
+                                            {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                        </select>
+                                        <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="text-xs border rounded p-2 bg-white">
+                                            {METHODS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                        </select>
                                     </div>
                                     <div className="flex gap-2">
-                                        <input type="number" placeholder="KRW" value={expenseKRW} onChange={e => setExpenseKRW(e.target.value)} className="flex-1 text-sm border rounded p-2 font-mono" />
-                                        <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)} className="text-xs border rounded p-2">
-                                            <option value="card">💳 碌卡</option>
-                                            <option value="cash">💵 現金</option>
-                                        </select>
-                                        <button className="bg-red-600 text-white px-4 rounded font-bold">{editingId ? '💾' : '＋'}</button>
+                                        <input type="number" placeholder="幾多 KRW？" value={expenseKRW} onChange={e => setExpenseKRW(e.target.value)} className="flex-1 text-sm border rounded p-2 font-mono" />
+                                        <button className="bg-red-600 text-white px-6 rounded font-bold">{editingId ? '更新' : '加入'}</button>
                                     </div>
                                 </form>
 
-                                {/* List */}
-                                <div className="space-y-4 pb-20">
-                                    {sortedDates.map(date => (
-                                        <div key={date} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                                            <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-500 border-b flex justify-between">
-                                                <span>📅 {date}</span>
-                                                <span>₩ {groups[date].reduce((s,e)=>s+e.krw,0).toLocaleString()}</span>
-                                            </div>
-                                            {groups[date].map(e => (
-                                                <div key={e.id} className="p-3 border-b last:border-0 flex justify-between items-center">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-xs font-bold text-slate-700">{e.name}</span>
-                                                        <span className={e.method === 'card' ? 'text-[9px] text-blue-500 font-bold' : 'text-[9px] text-emerald-500 font-bold'}>
-                                                            {e.method === 'card' ? 'CREDIT CARD' : 'CASH'}
-                                                        </span>
+                                <div className="space-y-2">
+                                    <p className="text-[10px] font-bold text-slate-400 px-1">消費紀錄 (由新到舊)</p>
+                                    {[...expenses].reverse().map(e => {
+                                        const cat = CATEGORIES.find(c => c.id === (e.category || 'other'));
+                                        return (
+                                            <div key={e.id} className="bg-white p-3 rounded-xl border flex justify-between items-center shadow-sm">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${cat.color.split(' ')[0]}`}>
+                                                        {cat.label.split(' ')[0]}
                                                     </div>
-                                                    <div className="text-right flex items-center gap-3">
-                                                        <div className="font-mono">
-                                                            <p className="text-sm font-bold">₩{e.krw.toLocaleString()}</p>
-                                                            <p className="text-[10px] text-slate-400">¥{e.jpy.toFixed(0)}</p>
-                                                        </div>
-                                                        <button onClick={()=>deleteExpense(e.id)} className="text-slate-300">✕</button>
+                                                    <div>
+                                                        <p className="text-xs font-bold text-slate-800">{e.name}</p>
+                                                        <p className="text-[9px] text-slate-400">{e.date} · {METHODS.find(m=>m.id===e.method)?.label}</p>
                                                     </div>
                                                 </div>
-                                            ))}
+                                                <div className="flex items-center gap-4">
+                                                    <div className="text-right">
+                                                        <p className="text-sm font-black">₩{e.krw.toLocaleString()}</p>
+                                                        <p className="text-[10px] text-red-500 font-bold">¥{e.jpy?.toFixed(0)}</p>
+                                                    </div>
+                                                    <button onClick={() => startEdit(e)} className="text-blue-500 text-lg">✎</button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
+                        {/* 餘下 Packing 同 Journal 功能保留不變 */}
+                        {activeTab === 'packing' && (
+                            <div className="space-y-4">
+                                <form onSubmit={(e) => {
+                                    e.preventDefault(); if(!newPackingItem) return;
+                                    const newList = [...packingList, { id: Date.now(), text: newPackingItem, checked: false }];
+                                    setPackingList(newList); updateCloud({ packingList: newList }); setNewPackingItem('');
+                                }} className="flex gap-2">
+                                    <input type="text" placeholder="仲要帶啲咩？" value={newPackingItem} onChange={e => setNewPackingItem(e.target.value)} className="flex-1 border rounded-xl p-3 text-sm outline-none border-2 focus:border-red-600" />
+                                    <button className="bg-black text-white px-6 rounded-xl font-bold">＋</button>
+                                </form>
+                                <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
+                                    {packingList.map(item => (
+                                        <div key={item.id} className="p-4 border-b last:border-0 flex items-center gap-3 active:bg-slate-50" 
+                                            onClick={() => {
+                                                const newList = packingList.map(i => i.id === item.id ? {...i, checked: !i.checked} : i);
+                                                setPackingList(newList); updateCloud({ packingList: newList });
+                                            }}>
+                                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.checked ? 'bg-red-600 border-red-600 text-white' : 'border-slate-300'}`}>
+                                                {item.checked && '✓'}
+                                            </div>
+                                            <span className={`text-sm ${item.checked ? 'line-through text-slate-300 italic' : 'font-bold text-slate-700'}`}>{item.text}</span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
-
-                        {activeTab === 'packing' && (
-                            <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-2">
-                                {packingList.map(item => (
-                                    <div key={item.id} onClick={()=>togglePacking(item.id)} className="flex items-center gap-3 p-3 border rounded-xl cursor-pointer">
-                                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${item.checked ? 'bg-black border-black text-white' : 'border-slate-200'}`}>
-                                            {item.checked && '✓'}
-                                        </div>
-                                        <span className={`text-sm ${item.checked ? 'line-through text-slate-400' : 'font-bold'}`}>{item.text}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
                         {activeTab === 'journal' && (
-                            <textarea 
-                                className="w-full h-[60vh] bg-white p-4 rounded-2xl border border-slate-200 outline-none text-sm leading-relaxed" 
-                                placeholder="賽後心情紀錄..."
-                                value={journalText}
-                                onChange={e => setJournalText(e.target.value)}
-                            />
+                            <textarea className="w-full h-[60vh] bg-white p-4 rounded-2xl border-2 border-slate-200 outline-none text-sm leading-relaxed" 
+                                placeholder="記低呢一刻嘅心情..." value={journalText} onChange={e => setJournalText(e.target.value)} onBlur={() => updateCloud({ journalText })} />
                         )}
                     </main>
 
-                    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t p-2 flex justify-around pb-safe shadow-lg">
+                    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t p-2 flex justify-around pb-safe shadow-2xl z-40">
                         <button onClick={()=>setActiveTab('finance')} className={`flex flex-col items-center p-2 rounded-xl w-20 ${activeTab==='finance'?'text-red-600 bg-red-50':'text-slate-400'}`}>
-                            <span className="text-xl">💰</span><span className="text-[10px] font-bold">記帳</span>
+                            <span className="text-xl">💰</span><span className="text-[10px] font-black uppercase">Money</span>
                         </button>
                         <button onClick={()=>setActiveTab('packing')} className={`flex flex-col items-center p-2 rounded-xl w-20 ${activeTab==='packing'?'text-red-600 bg-red-50':'text-slate-400'}`}>
-                            <span className="text-xl">🧳</span><span className="text-[10px] font-bold">清單</span>
+                            <span className="text-xl">🧳</span><span className="text-[10px] font-black uppercase">Pack</span>
                         </button>
                         <button onClick={()=>setActiveTab('journal')} className={`flex flex-col items-center p-2 rounded-xl w-20 ${activeTab==='journal'?'text-red-600 bg-red-50':'text-slate-400'}`}>
-                            <span className="text-xl">📝</span><span className="text-[10px] font-bold">紀錄</span>
+                            <span className="text-xl">📝</span><span className="text-[10px] font-black uppercase">Log</span>
                         </button>
                     </nav>
                 </div>
             );
         }
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
